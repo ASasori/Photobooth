@@ -3,116 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MediaPipe PhotoBooth</title>
+<title>PhotoBooth</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<style>
-    /* Custom styles for the app container */
-    body { 
-        font-family: 'Inter', sans-serif; 
-        background-color: #111827; 
-    }
-    .card { 
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5); 
-    }
-    /* Ensure the video feed scales correctly in the image element */
-    #videoFeed {
-        width: 100%;
-        height: auto;
-        /* Green border indicating a live stream */
-        border: 4px solid #10b981; 
-        background: #000;
-        min-height: 200px;
-        max-width: 640px; /* Set a max width to match the stream resolution */
-    }
-    .filter-button {
-        transition: all 0.2s ease-in-out;
-        border: 2px solid #374151;
-        cursor: pointer;
-    }
-    .filter-button.active {
-        background-color: #10b981; /* Green 500 */
-        color: #111827; /* Dark text */
-        border-color: #059669; /* Darker green border */
-        transform: scale(1.05);
-        font-weight: 700;
-    }
-    
-    /* --- Message Box Styles (NEW/MODIFIED) --- */
-    #messageBox {
-        font-weight: 500;
-        text-align: left; /* Change to left for close button */
-        border-radius: 0.5rem;
-        padding: 0.75rem;
-        transition: opacity 0.3s ease-in-out;
-    }
-    .message-content {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    .close-button {
-        background: none;
-        border: none;
-        color: inherit;
-        font-size: 1.25rem;
-        line-height: 1;
-        cursor: pointer;
-        margin-left: 1rem;
-        padding: 0 0.25rem;
-        opacity: 0.7;
-    }
-    .close-button:hover {
-        opacity: 1;
-    }
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 
-    /* --- Carousel Styles (NEW) --- */
-    #carousel {
-        position: relative;
-        width: 100%;
-        max-width: 640px;
-        height: 480px;
-        border: 3px solid #374151;
-        margin: 0 auto;
-        background: #000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 8px;
-        overflow: hidden;
-    }
-    #carousel img {
-        max-width: 100%;
-        max-height: 100%;
-        display: none;
-        object-fit: contain;
-    }
-    #carousel img.active { display: block; }
-    
-    .arrow {
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        z-index: 10;
-        width: 40px;
-        height: 40px;
-        background: rgba(0, 0, 0, 0.5);
-        border: none;
-        border-radius: 50%;
-        color: white;
-        font-size: 1.5rem;
-        cursor: pointer;
-        transition: background-color 0.2s;
-    }
-    .arrow:hover {
-        background: rgba(0, 0, 0, 0.8);
-    }
-    .arrow.left { 
-        left: 10px;
-    }
-    .arrow.right { 
-        right: 10px;
-    }
-</style>
 </head>
 <body class="p-4 flex flex-col items-center justify-center min-h-screen">
 
@@ -121,15 +15,14 @@
         Live Filter Photobooth
     </h1>
 
-    <div class="flex justify-center mb-8">
-        <img 
+    <div class="flex justify-center mb-8 relative"> <img 
             id="videoFeed" 
             src="/video_feed" 
             alt="Live Video Stream" 
             class="rounded-lg shadow-2xl"
             onerror="this.src='https://placehold.co/640x480/ef4444/ffffff?text=STREAM+ERROR+Refresh+Page';"
         >
-    </div>
+        </div>
 
     <div id="messageBox" class="bg-indigo-900 text-white p-3 rounded-xl hidden mb-6 font-medium">
         <div class="message-content">
@@ -144,11 +37,12 @@
         <button id="btnPimpHat" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Pimp Hat</button>
         <button id="btnCowboyHat" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Cowboy Hat</button>
         <button id="btnOff" class="filter-button bg-red-600 text-white py-2 px-4 rounded-full hover:bg-red-700">Turn Off All</button>
-        <button id="btnSave" class="filter-button bg-indigo-600 text-white py-2 px-4 rounded-full hover:bg-indigo-700 font-bold">Snap Photo! (Save)</button>
+        <!-- <button id="btnSave" class="filter-button bg-indigo-600 text-white py-2 px-4 rounded-full hover:bg-indigo-700 font-bold">Snap Photo! (Save)</button> -->
+        <button id="btnStartSession" class="filter-button bg-green-600 text-white py-2 px-4 rounded-full hover:bg-green-700 font-bold">Start 4-Photo Session</button>
     </div>
 
     <div id="gallery" class="mt-12">
-        <h2 class="text-3xl font-bold mb-4 text-gray-300">Photo Gallery</h2>
+    <h2 class="text-3xl font-bold mb-4 text-gray-300">Photo Gallery</h2>
         <div id="carousel">
             <button class="arrow left" onclick="updateImage(-1)">&#9664;</button>
             <div id="carousel-content" class="flex items-center justify-center w-full h-full">
@@ -160,171 +54,12 @@
     </div>
 
 </div>
-
 <script>
-// Base URL for sending commands to the Flask server
-const COMMAND_URL = '/command/';
-const IMAGE_LIST_URL = '/get_latest_images';
-const IMAGE_SERVE_URL = '/saved_image/';
-
-// Global State (only for local reference, authoritative state comes from server)
-let local_state = {};
-
-// --- Message Box Functionality (MODIFIED) ---
-let messageTimeout;
-
-function hideMessage() {
-    const box = document.getElementById('messageBox');
-    box.classList.add('hidden');
-    clearTimeout(messageTimeout);
-}
-
-// Helper function to show a temporary message
-function showMessage(msg, duration = 4000) {
-    const box = document.getElementById('messageBox');
-    const msgText = document.getElementById('messageText');
-    
-    // Clear any existing timeout
-    clearTimeout(messageTimeout);
-
-    msgText.textContent = msg;
-    box.classList.remove('hidden');
-
-    // Set a new timeout to hide the message automatically (if duration is provided)
-    if (duration > 0) {
-        messageTimeout = setTimeout(hideMessage, duration);
-    }
-}
-
-// Function to update all button active states based on server's state
-function updateUI(state) {
-    document.getElementById("btnMustache").classList.toggle("active", state.mustache);
-    document.getElementById("btnGlasses").classList.toggle("active", state.glasses);
-    document.getElementById("btnPimpHat").classList.toggle("active", state.pimp_hat);
-    document.getElementById("btnCowboyHat").classList.toggle("active", state.cowboy_hat);
-}
-
-// Function to send a command via HTTP fetch
-async function sendCommand(cmd) {
-    try {
-        const response = await fetch(COMMAND_URL + cmd);
-        
-        if (!response.ok) {
-            throw new Error(`Server responded with status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data.state) {
-            updateUI(data.state); // Update buttons immediately based on server state
-        }
-
-        if (cmd === 'save') {
-            if (data.status === 'saved') {
-                showMessage("Photo saved successfully!", 4000); // 4 seconds auto-hide
-                // Request the updated list of images after saving
-                await getAndRenderImages();
-            } else if (data.status === 'error') {
-                showMessage("Error saving photo: " + data.message, 5000); // 5 seconds auto-hide
-            }
-        }
-        
-    } catch (error) {
-        console.error("Error communicating with server:", error);
-        showMessage("Connection Error: Could not reach the server or process command.", 0); // 0 = no auto-hide
-    }
-}
-
-
-// --- Gallery Logic (NEW) ---
-let images = [];
-let currentIndex = 0;
-
-function renderCarousel() {
-    const carouselContent = document.getElementById("carousel-content");
-    // Clear previous images
-    carouselContent.innerHTML = ''; 
-
-    if (images.length === 0) {
-        carouselContent.innerHTML = '<p class="text-gray-400 text-lg">No photos saved yet.</p>';
-        return;
-    }
-
-    images.forEach((filename, i) => {
-        const imgEl = document.createElement("img");
-        // Use the new Flask route to serve the image file
-        imgEl.src = IMAGE_SERVE_URL + filename; 
-        imgEl.alt = "Saved Photo " + (i + 1);
-        
-        // Hide all but the first image
-        if (i === 0) {
-            imgEl.classList.add("active");
-        }
-        
-        carouselContent.appendChild(imgEl);
-    });
-    
-    currentIndex = 0; 
-}
-
-function updateImage(dir) {
-    const imgs = document.querySelectorAll("#carousel img");
-    if (imgs.length === 0) return;
-    
-    // Deactivate current image
-    imgs[currentIndex].classList.remove("active");
-    
-    // Calculate new index (handles looping)
-    currentIndex = (currentIndex + dir + imgs.length) % imgs.length;
-    
-    // Activate new image
-    imgs[currentIndex].classList.add("active");
-}
-
-async function getAndRenderImages() {
-    try {
-        const response = await fetch(IMAGE_LIST_URL);
-        if (!response.ok) {
-            throw new Error('Failed to fetch image list.');
-        }
-        const data = await response.json();
-        images = data.latest_images || [];
-        renderCarousel();
-    } catch (error) {
-        console.error("Error loading images:", error);
-    }
-}
-
-// --- Initialization ---
-async function initializeState() {
-    // Fetch initial filter state
-    try {
-        const response = await fetch('/get_state');
-        const data = await response.json();
-        if (data.state) {
-            updateUI(data.state);
-        }
-    } catch (error) {
-        console.error("Could not fetch initial state:", error);
-        showMessage("Waiting for Flask server to start... Check your Python terminal for errors.", 0);
-    }
-    
-    // Fetch and render saved images
-    await getAndRenderImages();
-}
-
-// Attach event listeners to buttons
-document.getElementById("btnMustache").onclick = () => sendCommand("mustache");
-document.getElementById("btnGlasses").onclick = () => sendCommand("glasses");
-document.getElementById("btnPimpHat").onclick = () => sendCommand("pimp_hat");
-document.getElementById("btnCowboyHat").onclick = () => sendCommand("cowboy_hat");
-document.getElementById("btnOff").onclick = () => sendCommand("off");
-document.getElementById("btnSave").onclick = () => sendCommand("save");
-
-
-// Start initialization
-window.onload = initializeState;
-
+    // Định nghĩa các hằng số URL cho JavaScript sử dụng
+    window.COMMAND_URL = "{{ url_for('handle_command', cmd='') }}"; 
+    window.IMAGE_LIST_URL = "{{ url_for('get_latest_images') }}";
+    window.IMAGE_SERVE_BASE_URL = "{{ url_for('serve_image', filename='') }}";
 </script>
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>
