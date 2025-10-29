@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>PhotoBooth Filters</title>
+<style>
+    body { background: #222; color: #eee; text-align: center; font-family: sans-serif; }
+    video, img { width: 640px; height: 480px; border-radius: 8px; margin: 10px; background: #000; }
+    button { margin: 5px; padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; }
+    button.active { background: limegreen; color: black; }
+
+    #gallery { margin-top: 20px; }
+    #carousel {
+        position: relative;
+        width: 640px;
+        height: 480px;
+        border: 3px solid #555;
+        margin: 0 auto;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    #carousel img {
+        max-width: 100%;
+        max-height: 100%;
+        display: none;
+        object-fit: contain;
+    }
+    #carousel img.active { display: block; }
+    
+    .arrow {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 20px;
+        height: 20px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .arrow::before {
+        content: '';
+        display: block;
+        width: 10px;
+        height: 10px;
+        border-top: 3px solid #ccc;
+        border-right: 3px solid #ccc;
+        transition: border-color 0.2s, transform 0.2s;
+        margin: auto;
+    }
+
+    .arrow.left::before {
+        transform: rotate(225deg);
+        margin-left: -12px;
+    }
+
+    .arrow.right::before {
+        transform: rotate(45deg);
+        margin-right: -12px;
+    }
+
+    .arrow:hover::before {
+        border-color: white;
+        transform: scale(1.1) rotate(var(--angle));
+    }
+
+    .arrow.left { 
+        left: 10px;
+        --angle: 225deg;
+    }
+
+    .arrow.right { 
+        right: 10px;
+        --angle: 45deg;
+    }
+</style>
+</head>
+<body>
+
+<h1>🎭 PhotoBooth Filters</h1>
+<img id="videoFeed" src="">
+<div>
+    <button id="btnMustache">Mustache</button>
+    <button id="btnGlasses">Glasses</button>
+    <button id="btnPimpHat">Pimp Hat</button>
+    <button id="btnCowboyHat">Cowboy Hat</button>
+    <button id="btnOff">Turn Off All</button>
+    <button id="btnSave">Save Image</button>
+</div>
+
+<div id="gallery">
+    <h2>📸 Saved Photos</h2>
+    <div id="carousel">
+        <button class="arrow left"></button>
+        <button class="arrow right"></button>
+    </div>
+</div>
+
+<script>
+const ws = new WebSocket("ws://localhost:8765");
+const img = document.getElementById("videoFeed");
+
+// Local state only for quick UI reference
+let local_state = {};
+
+ws.onopen = () => {
+  console.log("Connected");
+    // ask backend for last saved photos (server will also send initial current_state)
+    ws.send(JSON.stringify({ command: "get_latest" }));
+};
+
+ws.onmessage = e => {
+    try {
+        const data = JSON.parse(e.data);
+
+        // Handle latest images for gallery
+        if (data.latest_images) {
+            images = data.latest_images;
+            renderCarousel();
+            return;
+        }
+
+        // Handle state synchronization from server
+        if (data.current_state) {
+            local_state = data.current_state; // Update local state
+            updateUI(local_state); // Update button classes
+            return;
+        }
+    } catch {
+        // Assume non-JSON message is the video frame
+        img.src = "data:image/jpeg;base64," + e.data;
+    }
+};
+
+// Helper function to send a command to the server
+function sendCommand(cmd) {
+    ws.send(JSON.stringify({ command: cmd }));
+}
+
+// Function to update all button active states based on server's state
+function updateUI(state) {
+    document.getElementById("btnMustache").classList.toggle("active", state.mustache);
+    document.getElementById("btnGlasses").classList.toggle("active", state.glasses);
+    document.getElementById("btnPimpHat").classList.toggle("active", state.pimp_hat);
+    document.getElementById("btnCowboyHat").classList.toggle("active", state.cowboy_hat);
+}
+
+/* --- filter buttons now send commands --- */
+document.getElementById("btnMustache").onclick = () => {
+    sendCommand("mustache");
+};
+document.getElementById("btnGlasses").onclick = () => {
+    sendCommand("glasses");
+};
+document.getElementById("btnPimpHat").onclick = () => {
+    sendCommand("pimp_hat");
+};
+document.getElementById("btnCowboyHat").onclick = () => {
+    sendCommand("cowboy_hat");
+};
+document.getElementById("btnOff").onclick = () => {
+    sendCommand("off");
+};
+document.getElementById("btnSave").onclick = async () => {
+    sendCommand("save");
+    // Wait for the server to process the save command and save the file
+    await new Promise(r => setTimeout(r, 1000));
+    // Request the updated list of images
+    ws.send(JSON.stringify({ command: "get_latest" }));
+};
+
+/* --- gallery logic --- */
+let images = [];
+let currentIndex = 0;
+
+function renderCarousel() {
+    const carousel = document.getElementById("carousel");
+    document.querySelectorAll("#carousel img").forEach(img => img.remove());
+    images.forEach((src, i) => {
+        const imgEl = document.createElement("img");
+        imgEl.src = "file:///" + src.replace(/\\/g, "/");
+        if (i === 0) imgEl.classList.add("active");
+        carousel.appendChild(imgEl);
+    });
+    // Reset index to show the newest image (index 0)
+    currentIndex = 0; 
+}
+
+function updateImage(dir) {
+    const imgs = document.querySelectorAll("#carousel img");
+    if (imgs.length === 0) return;
+    imgs[currentIndex].classList.remove("active");
+    currentIndex = (currentIndex + dir + imgs.length) % imgs.length;
+    imgs[currentIndex].classList.add("active");
+}
+
+document.querySelector(".arrow.left").onclick = () => updateImage(-1);
+document.querySelector(".arrow.right").onclick = () => updateImage(1);
+</script>
+</body>
+</html>

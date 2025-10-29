@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  photobooth:
+    build: .
+    container_name: photobooth
+    ports:
+      - "8765:8765"
+    volumes:
+      # Ánh xạ thư mục saved_image từ máy host vào container
+      - ./saved_image:/app/saved_image
+    devices:
+      # Cho phép container truy cập webcam của laptop
+      - "/dev/video0:/dev/video0"
