@@ -15,19 +15,30 @@
         Live Filter Photobooth
     </h1>
 
-    <div class="flex justify-center mb-8 relative"> <img 
+    <div class="flex justify-center mb-8 relative"> 
+        <img 
             id="videoFeed" 
             src="/video_feed" 
             alt="Live Video Stream" 
             class="rounded-lg shadow-2xl"
             onerror="this.src='https://placehold.co/640x480/ef4444/ffffff?text=STREAM+ERROR+Refresh+Page';"
         >
+        <div id="countdownOverlay" 
+            class="absolute inset-0 flex items-center justify-center 
+                    font-bold text-9xl"
+            style="
+                display: none;
+                color: rgba(255,255,255,0.5);  
+                text-shadow: 0 0 20px rgba(0,0,0,0.4); 
+                pointer-events: none;
+            ">
         </div>
+    </div>
 
     <div id="messageBox" class="bg-indigo-900 text-white p-3 rounded-xl hidden mb-6 font-medium">
         <div class="message-content">
             <span id="messageText"></span>
-            <button id="closeMessage" class="close-button" onclick="hideMessage()">×</button>
+            <button id="closeMessage" class="close-button" onclick="hideMessage()">x</button>
         </div>
     </div>
 
@@ -37,28 +48,25 @@
         <button id="btnPimpHat" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Pimp Hat</button>
         <button id="btnCowboyHat" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Cowboy Hat</button>
         <button id="btnOff" class="filter-button bg-red-600 text-white py-2 px-4 rounded-full hover:bg-red-700">Turn Off All</button>
-        <!-- <button id="btnSave" class="filter-button bg-indigo-600 text-white py-2 px-4 rounded-full hover:bg-indigo-700 font-bold">Snap Photo! (Save)</button> -->
         <button id="btnStartSession" class="filter-button bg-green-600 text-white py-2 px-4 rounded-full hover:bg-green-700 font-bold">Start 4-Photo Session</button>
     </div>
-
-    <div id="gallery" class="mt-12">
-    <h2 class="text-3xl font-bold mb-4 text-gray-300">Photo Gallery</h2>
-        <div id="carousel">
-            <button class="arrow left" onclick="updateImage(-1)">&#9664;</button>
-            <div id="carousel-content" class="flex items-center justify-center w-full h-full">
-                <p class="text-gray-400 text-lg">No photos saved yet.</p>
-            </div>
-            <button class="arrow right" onclick="updateImage(1)">&#9654;</button>
-        </div>
-        <p class="text-sm text-gray-500 mt-2">Photos are served from the **saved_image/** folder.</p>
+    <div id="session-captures" class="mt-8 w-full max-w-md mx-auto"></div>
+    <div id="btnContinue" 
+        class="filter-button bg-green-600 text-white py-2 px-4 mt-4 mx-auto 
+                w-fit rounded-full hover:bg-green-700 font-bold"
+        style="display: none;">
+        Continue
     </div>
-
 </div>
+
+<canvas id="captureCanvas" style="display: none;"></canvas>
+
 <script>
     // Định nghĩa các hằng số URL cho JavaScript sử dụng
     window.COMMAND_URL = "{{ url_for('handle_command', cmd='') }}"; 
     window.IMAGE_LIST_URL = "{{ url_for('get_latest_images') }}";
     window.IMAGE_SERVE_BASE_URL = "{{ url_for('serve_image', filename='') }}";
+    window.BATCH_UPLOAD_URL = "{{ url_for('batch_upload') }}";
 </script>
 <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>

@@ -6,9 +6,10 @@ import numpy as np
 import atexit
 from glob import glob
 from datetime import datetime
-from flask import Flask, Response, jsonify, render_template, send_from_directory
+from flask import Flask, Response, jsonify, render_template, send_from_directory, request 
+import base64 
+import re 
 
-# ... (Các hằng số, biến global, và đường dẫn giữ nguyên) ...
 HOST = "0.0.0.0"
 PORT = 5000
 FRAME_WIDTH = 640
@@ -40,9 +41,6 @@ state = {
     "pimp_hat": False,
     "cowboy_hat": False,
 }
-
-# --- Biến MỚI cho đếm ngược ---
-overlay_text = "" # Global variable for countdown text
 
 # ... (Load filter images và Mediapipe setup giữ nguyên) ...
 stache = cv2.imread(os.path.join(FILTER_DIR, "mustache.png"), cv2.IMREAD_UNCHANGED)
@@ -135,7 +133,6 @@ def apply_filter(face_landmarks, image, scale=1.2, offset_y=40,
 def gen_frames():
     global frame_counter
     global results
-    global overlay_text # Cần truy cập biến global
     
     while True:
         ret, frame = cap.read()
@@ -166,31 +163,12 @@ def gen_frames():
                     image = apply_filter(fl, image, scale=2.3, offset_y=-70,
                                          filter=cowboy_hat, left_idx=234, right_idx=454, anchor_idx=10)
         
-        # --- PHẦN MỚI: Vẽ chữ đếm ngược lên khung hình ---
-        if overlay_text:
-            # Thiết lập thuộc tính văn bản
-            text = overlay_text
-            font_scale = 5
-            font_thickness = 10
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            text_size, _ = cv2.getTextSize(text, font, font_scale, font_thickness)
-            
-            # Tính toán vị trí để căn giữa
-            text_x = (image.shape[1] - text_size[0]) // 2
-            text_y = (image.shape[0] + text_size[1]) // 2
-            
-            # Vẽ viền trắng (để nổi bật)
-            cv2.putText(image, text, (text_x, text_y), font, font_scale, (255, 255, 255), font_thickness + 5)
-            # Vẽ chữ đỏ
-            cv2.putText(image, text, (text_x, text_y), font, font_scale, (0, 0, 255), font_thickness)
-        
         # --- Encoding and Yielding Frame ---
         _, buffer = cv2.imencode('.jpg', image)
         frame_bytes = buffer.tobytes()
 
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-
 
 # --- Flask Routes ---
 @app.route('/')
@@ -201,6 +179,60 @@ def index():
 def video_feed():
     return Response(gen_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# --- (MỚI) ROUTE ĐỂ NHẬN 4 ẢNH TỪ FE ---
+@app.route('/command/batch_upload', methods=['POST'])
+def batch_upload():
+    """
+    Nhận một loạt ảnh (Base64) từ FE, giải mã và lưu chúng.
+    """
+    try:
+        data = request.get_json()
+        if not data or 'images' not in data:
+            return jsonify(status='error', message='No image data provided.'), 400
+
+        base64_images = data['images']
+        saved_count = 0
+
+        for img_data_url in base64_images:
+            # Tách phần header (ví dụ: "data:image/jpeg;base64,")
+            try:
+                # Tách header và data
+                header, encoded_data = img_data_url.split(',', 1)
+                # Giải mã Base64
+                img_data = base64.b64decode(encoded_data)
+                
+                # Tạo tên file duy nhất
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                # Đuôi file nên dựa trên header, nhưng ở đây ta mặc định là .jpg
+                file_extension = ".jpg"
+                if "image/png" in header:
+                    file_extension = ".png"
+
+                filename = f"photobooth_{timestamp}{file_extension}"
+                filepath = os.path.join(SAVE_DIR, filename)
+                
+                # Lưu file (chế độ "wb" - write binary)
+                with open(filepath, 'wb') as f:
+                    f.write(img_data)
+                
+                print(f"[{GREEN}INFO{ENDC}] Saved {filename} from FE upload.")
+                saved_count += 1
+                
+            except Exception as e:
+                print(f"[{RED}ERROR{ENDC}] Failed to decode/save one image: {e}")
+                pass # Bỏ qua ảnh lỗi và tiếp tục
+
+        if saved_count == 0:
+             return jsonify(status='error', message='Could not decode/save any images.'), 500
+
+        # Trả về thành công
+        return jsonify(status='saved', count=saved_count, message=f'Saved {saved_count} images.')
+
+    except Exception as e:
+        print(f"[{RED}ERROR{ENDC}] Error in batch_upload: {e}")
+        return jsonify(status='error', message=str(e)), 500
+
 
 @app.route('/command/<cmd>')
 def handle_command(cmd):
@@ -216,30 +248,6 @@ def handle_command(cmd):
     elif cmd == "off":
         for key in state:
             state[key] = False
-            
-    elif cmd == "save":
-        ret, frame = cap.read()
-        if ret:
-            image = cv2.flip(frame, 1)
-            image_bgr = image.copy() # Sửa lỗi logic từ lần trước
-            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            results_save = face_mesh.process(rgb)
-
-            if results_save and results_save.multi_face_landmarks:
-                for fl in results_save.multi_face_landmarks:
-                    if state["mustache"]:
-                        image_bgr = apply_filter(fl, image_bgr, scale=1.2, offset_y=40, filter=stache, left_idx=234, right_idx=454, anchor_idx=1)
-                    if state["glasses"]:
-                        image_bgr = apply_filter(fl, image_bgr, scale=2.0, offset_y=20, filter=glasses, left_idx=33, right_idx=263, anchor_idx=168)
-                    if state["pimp_hat"] and not state["cowboy_hat"]:
-                        image_bgr = apply_filter(fl, image_bgr, scale=1.8, offset_y=-100, filter=pimp_hat, left_idx=234, right_idx=454, anchor_idx=10)
-                    if state["cowboy_hat"] and not state["pimp_hat"]:
-                        image_bgr = apply_filter(fl, image_bgr, scale=2.3, offset_y=-70, filter=cowboy_hat, left_idx=234, right_idx=454, anchor_idx=10)
-            
-            save_image(image_bgr)
-            return jsonify({"status": "saved", "state": state})
-        else:
-            return jsonify({"status": "error", "message": "Could not capture frame to save."}), 500
 
     print(f"[{GREEN}INFO{ENDC}] Command received: {cmd}. New State: {state}")
     return jsonify({"status": "updated", "state": state})
@@ -251,8 +259,14 @@ def get_current_state():
 
 @app.route('/get_latest_images')
 def get_latest_images():
-    search_path = os.path.join(SAVE_DIR, "*.png")
-    all_files = glob(search_path)
+    search_paths = [
+        os.path.join(SAVE_DIR, "*.png"),
+        os.path.join(SAVE_DIR, "*.jpg") # Thêm .jpg
+    ]
+    all_files = []
+    for path in search_paths:
+        all_files.extend(glob(path))
+        
     all_files.sort(key=os.path.getmtime, reverse=True)
     latest_images = [os.path.basename(f) for f in all_files]
     return jsonify({"latest_images": latest_images[:10]})
@@ -261,21 +275,7 @@ def get_latest_images():
 def serve_image(filename):
     return send_from_directory(SAVE_DIR, filename)
 
-# --- CÁC ROUTE MỚI CHO SELF-TIMER ---
-@app.route('/command/set_text/<text>')
-def set_overlay_text(text):
-    global overlay_text
-    overlay_text = text
-    return jsonify({"status": "text_set", "text": overlay_text})
-
-@app.route('/command/clear_text')
-def clear_overlay_text():
-    global overlay_text
-    overlay_text = ""
-    return jsonify({"status": "text_cleared"})
-
-# --- Cleanup Function ---
-# ... (Hàm cleanup_resources và __main__ giữ nguyên) ...
+# ... (Phần cleanup và main giữ nguyên) ...
 def cleanup_resources():
     print(f"\n[{BLUE}INFO{ENDC}] Releasing camera and cleaning up resources...")
     cap.release()
