@@ -132,6 +132,24 @@ def apply_filter(face_landmarks, image, scale=1.2, offset_y=40,
     y1 = int(anchor_y - filter_rotated.shape[0] // 2 + offset_y)
     return overlay_transparent(image, filter_rotated, x1, y1)
 
+def apply_color_tint(image, bgr_color, intensity=0.15):
+    # Tạo một lớp phủ màu (color overlay)
+    h, w, _ = image.shape
+    color_overlay = np.full((h, w, 3), bgr_color, dtype=np.uint8)
+    
+    # Trộn ảnh gốc với lớp phủ màu
+    alpha = 1.0 - intensity
+    beta = intensity
+    return cv2.addWeighted(image, alpha, color_overlay, beta, 0)
+
+def apply_cool_tint(image, intensity=0.6):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray_3c = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    
+    alpha = 1.0 - intensity
+    beta = intensity
+    return cv2.addWeighted(image, alpha, gray_3c, beta, 0)
+
 # --- Flask Video Generator (ĐÃ CẬP NHẬT) ---
 def gen_frames():
     global frame_counter
@@ -150,6 +168,15 @@ def gen_frames():
             results = face_mesh.process(rgb)
             frame_counter = 0
 
+        if state["cute"]:
+            tint_color = (200, 180, 255) # BGR: Pink/Magenta
+            image = apply_color_tint(image, tint_color, intensity=0.2)    
+        if state["cool"]:
+            image = apply_cool_tint(image, intensity=0.5)
+        if state["poetic"]:
+            tint_color = (70, 110, 190) # BGR: Sepia/Yellow-ish
+            image = apply_color_tint(image, tint_color, intensity=0.25)
+        
         # ... (Phần áp dụng filter giữ nguyên) ...
         if results and results.multi_face_landmarks:
             for fl in results.multi_face_landmarks:
@@ -170,9 +197,7 @@ def gen_frames():
                                          filter=rabbit, left_idx=234, right_idx=454, anchor_idx=10)
                     image = apply_filter(fl, image, scale=1, offset_y=-50,
                                          filter=angry, left_idx=234, right_idx=454, anchor_idx=33)
-                    
-                    
-        
+                     
         # --- Encoding and Yielding Frame ---
         _, buffer = cv2.imencode('.jpg', image)
         frame_bytes = buffer.tobytes()
@@ -297,6 +322,6 @@ if __name__ == '__main__':
     try:
         print(f"Flask MJPEG Server started on http://{HOST}:{PORT}")
         print("Navigate to this address in your browser.")
-        app.run(host=HOST, port=PORT, use_reloader=False, threaded=True)
+        app.run(host=HOST, port=PORT, use_reloader=False, threaded=True, debug=False)
     finally:
         print(f"\n[{BLUE}INFO{ENDC}] Keyboard Interrupt received. Shutting down server...")
