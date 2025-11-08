@@ -43,10 +43,9 @@
     </div>
 
     <div class="flex flex-wrap justify-center gap-4">
-        <button id="btnMustache" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Mustache</button>
-        <button id="btnGlasses" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Glasses</button>
-        <button id="btnPimpHat" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Pimp Hat</button>
-        <button id="btnCowboyHat" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Cowboy Hat</button>
+        <button id="btnCute" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Cute</button>
+        <button id="btnCool" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Cool</button>
+        <button id="btnPoetic" class="filter-button bg-gray-600 text-white py-2 px-4 rounded-full hover:bg-gray-500">Poetic</button>
         <button id="btnOff" class="filter-button bg-red-600 text-white py-2 px-4 rounded-full hover:bg-red-700">Turn Off All</button>
         <button id="btnStartSession" class="filter-button bg-green-600 text-white py-2 px-4 rounded-full hover:bg-green-700 font-bold">Start 4-Photo Session</button>
     </div>
@@ -68,6 +67,6 @@
     window.IMAGE_SERVE_BASE_URL = "{{ url_for('serve_image', filename='') }}";
     window.BATCH_UPLOAD_URL = "{{ url_for('batch_upload') }}";
 </script>
-<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+<script src="{{ url_for('static', filename='js/script_v2.js') }}"></script>
 </body>
 </html>

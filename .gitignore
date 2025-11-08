@@ -2,3 +2,4 @@ saved_image/*
 .venv/
 myenv/
 static/saved_images/
+old_version/

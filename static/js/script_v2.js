@@ -36,10 +36,9 @@ function showMessage(msg, duration = 4000) {
 }
 
 function updateUI(state) {
-    document.getElementById("btnMustache").classList.toggle("active", state.mustache);
-    document.getElementById("btnGlasses").classList.toggle("active", state.glasses);
-    document.getElementById("btnPimpHat").classList.toggle("active", state.pimp_hat);
-    document.getElementById("btnCowboyHat").classList.toggle("active", state.cowboy_hat);
+    document.getElementById("btnCute").classList.toggle("active", state.cute);
+    document.getElementById("btnCool").classList.toggle("active", state.cool);
+    document.getElementById("btnPoetic").classList.toggle("active", state.poetic);
 }
 
 async function sendCommand(cmd) {
@@ -147,7 +146,7 @@ async function startPhotoSession() {
 
     if (!isSessionRunning) { return; }
     
-    const totalPhotos = 2;
+    const totalPhotos = 4;
     for (let i = 1; i <= totalPhotos; i++) {
         showMessage(`Photo ${i} of ${totalPhotos}. Countdown...`, 1500);
         await sleep(1000); 
@@ -207,10 +206,9 @@ async function initializeState() {
 }
 
 // Attach event listeners to buttons
-document.getElementById("btnMustache").onclick = () => sendCommand("mustache");
-document.getElementById("btnGlasses").onclick = () => sendCommand("glasses");
-document.getElementById("btnPimpHat").onclick = () => sendCommand("pimp_hat");
-document.getElementById("btnCowboyHat").onclick = () => sendCommand("cowboy_hat");
+document.getElementById("btnCute").onclick = () => sendCommand("cute");
+document.getElementById("btnCool").onclick = () => sendCommand("cool");
+document.getElementById("btnPoetic").onclick = () => sendCommand("poetic");
 document.getElementById("btnOff").onclick = () => sendCommand("off");
 btnStartSession.onclick = () => togglePhotoSession();
 btnContinue.onclick = () => sendBatchUpload(capturedImages)

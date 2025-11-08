@@ -26,7 +26,7 @@ results = None
 MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
 SAVE_DIR = os.path.join(MAIN_DIR, "static", "saved_images")
 FILTER_DIR = os.path.join(MAIN_DIR, "static", "images")
-INDEX_HTML_RELATIVE = "index_flask.html"
+INDEX_HTML_RELATIVE = "index_flask_v2.html"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 print(f"[{GREEN}INFO{ENDC}] Main Directory: {MAIN_DIR}")
@@ -36,10 +36,9 @@ print(f"[{GREEN}INFO{ENDC}] Index HTML Path: {os.path.join(MAIN_DIR, INDEX_HTML_
 
 # Filter toggles state
 state = {
-    "mustache": False,
-    "glasses": False,
-    "pimp_hat": False,
-    "cowboy_hat": False,
+    "cute": False,
+    "cool": False,
+    "poetic": False,
 }
 
 # ... (Load filter images và Mediapipe setup giữ nguyên) ...
@@ -47,12 +46,16 @@ stache = cv2.imread(os.path.join(FILTER_DIR, "mustache.png"), cv2.IMREAD_UNCHANG
 glasses = cv2.imread(os.path.join(FILTER_DIR, "pixel-sunglasses.png"), cv2.IMREAD_UNCHANGED)
 pimp_hat = cv2.imread(os.path.join(FILTER_DIR, "pimphat.png"), cv2.IMREAD_UNCHANGED)
 cowboy_hat = cv2.imread(os.path.join(FILTER_DIR, "cowboyhat.png"), cv2.IMREAD_UNCHANGED)
+mickey = cv2.imread(os.path.join(FILTER_DIR, "mickey.png"), cv2.IMREAD_UNCHANGED)
+mickey_glasses = cv2.imread(os.path.join(FILTER_DIR, "mickey-glasses.png"), cv2.IMREAD_UNCHANGED)
+rabbit = cv2.imread(os.path.join(FILTER_DIR, "rabbit.png"), cv2.IMREAD_UNCHANGED)
+angry = cv2.imread(os.path.join(FILTER_DIR, "angry.png"), cv2.IMREAD_UNCHANGED)
 
 if all(x is not None for x in (stache, glasses, pimp_hat, cowboy_hat)):
     print(f"[{GREEN}INFO{ENDC}] Filters loaded successfully.")
 
 mp_face_mesh = mp.solutions.face_mesh
-face_mesh = mp_face_mesh.FaceMesh(max_num_faces=5, min_detection_confidence=0.5, min_tracking_confidence=0.5)
+face_mesh = mp_face_mesh.FaceMesh(max_num_faces=4, min_detection_confidence=0.5, min_tracking_confidence=0.5)
 cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
@@ -150,18 +153,25 @@ def gen_frames():
         # ... (Phần áp dụng filter giữ nguyên) ...
         if results and results.multi_face_landmarks:
             for fl in results.multi_face_landmarks:
-                if state["mustache"]:
+                if state["cute"]:
+                    image = apply_filter(fl, image, scale=2.0, offset_y=8,
+                                         filter=mickey_glasses, left_idx=33, right_idx=263, anchor_idx=168)
+                    image = apply_filter(fl, image, scale=3, offset_y=-60,
+                                         filter=mickey, left_idx=234, right_idx=454, anchor_idx=10)
+                if state["cool"]:
                     image = apply_filter(fl, image, scale=1.2, offset_y=40,
                                          filter=stache, left_idx=234, right_idx=454, anchor_idx=1)
-                if state["glasses"]:
                     image = apply_filter(fl, image, scale=2.0, offset_y=20,
                                          filter=glasses, left_idx=33, right_idx=263, anchor_idx=168)
-                if state["pimp_hat"] and not state["cowboy_hat"]:
-                    image = apply_filter(fl, image, scale=1.8, offset_y=-100,
-                                         filter=pimp_hat, left_idx=234, right_idx=454, anchor_idx=10)
-                if state["cowboy_hat"] and not state["pimp_hat"]:
                     image = apply_filter(fl, image, scale=2.3, offset_y=-70,
                                          filter=cowboy_hat, left_idx=234, right_idx=454, anchor_idx=10)
+                if state["poetic"] :
+                    image = apply_filter(fl, image, scale=2.5, offset_y=-100,
+                                         filter=rabbit, left_idx=234, right_idx=454, anchor_idx=10)
+                    image = apply_filter(fl, image, scale=1, offset_y=-50,
+                                         filter=angry, left_idx=234, right_idx=454, anchor_idx=33)
+                    
+                    
         
         # --- Encoding and Yielding Frame ---
         _, buffer = cv2.imencode('.jpg', image)
@@ -239,12 +249,12 @@ def handle_command(cmd):
     global state
     
     if cmd in state:
-        state[cmd] = not state[cmd]
-        if cmd == "pimp_hat" and state["pimp_hat"]:
-            state["cowboy_hat"] = False
-        elif cmd == "cowboy_hat" and state["cowboy_hat"]:
-            state["pimp_hat"] = False
-            
+        for key in state:
+            if (key==cmd):
+                state[cmd] = not state[cmd]
+            else:
+                state[key] = False
+
     elif cmd == "off":
         for key in state:
             state[key] = False
