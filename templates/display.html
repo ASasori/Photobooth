@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Magic Mirror Display</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { background-color: #000; overflow: hidden; cursor: none; }
+        #streamWrapper { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        #videoFeed { height: 100vh; width: 100vw; object-fit: contain; display: none; } 
+        #waitingScreen { position: absolute; text-align: center; color: #6b7280; }
+        #countdownOverlay {
+            position: absolute; text-align: center; color: rgba(255,255,255,0.8);
+            font-size: 20rem; font-weight: 800;
+            text-shadow: 0 0 50px rgba(0,0,0,0.7);
+            display: none;
+        }
+        #thumbnailContainer {
+            position: absolute; bottom: 20px; left: 20px;
+            display: flex; gap: 10px; z-index: 100;
+        }
+        #thumbnailContainer img {
+            width: 80px; height: 60px; object-fit: cover;
+            border: 2px solid white; border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="streamWrapper">
+        <div id="waitingScreen">
+            <h1 class="text-8xl font-black mb-8 animate-pulse text-gray-800">PHOTOBOOTH</h1>
+            <p class="text-3xl uppercase tracking-[1em]">Standby</p>
+            <p id="debugStatus" class="text-sm mt-4 text-gray-600">Connecting...</p>
+        </div>
+
+        <img id="videoFeed" alt="Live Mirror">
+        <div id="countdownOverlay"></div>
+        <div id="thumbnailContainer"></div>
+    </div>
+
+<script>
+    // === CONFIGURATION ===
+    const CONTROL_SERVER_URL = "https://photobooth.kazekageiii.xyz";
+    const RASPBERRY_SERVER_URL = "http://localhost:5000";
+    const UPLOAD_URL = "https://photobooth.kazekageiii.xyz/upload";
+    const CAPTURE_COUNTDOWN_SEC = 10;
+    const TOTAL_PHOTOS = 4;
+
+    // === SOCKETS ===
+    const controlSocket = io(`${CONTROL_SERVER_URL}/photobooth`, {
+        transports: ['polling'], // HTTP long polling only
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        forceNew: true, // Force new connection
+    });
+    const raspberrySocket = io(RASPBERRY_SERVER_URL);
+
+    // === DOM ELEMENTS ===
+    const videoFeed = document.getElementById('videoFeed');
+    const waitingScreen = document.getElementById('waitingScreen');
+    const debugStatus = document.getElementById('debugStatus');
+    const countdownOverlay = document.getElementById('countdownOverlay');
+    const thumbnailContainer = document.getElementById('thumbnailContainer');
+    
+    // === STATE MANAGEMENT ===
+    let userId = null;
+    let isCountingDown = false;
+    let capturedImages = []; // Stores Base64 strings for upload
+    let currentObjectUrl = null;
+
+    // === CONTROL SERVER COMMUNICATION (Receiving Commands) ===
+
+    controlSocket.on('connect', () => {
+        console.log("Connected to Control Server");
+        debugStatus.textContent = "Controller Hub Connected";
+        controlSocket.emit('register', { role: 'display' });
+    });
+
+    controlSocket.on('start_session', (data) => {
+        const newUserId = data.data.user_id;
+        console.log(`Command [Control -> Display]: START SESSION. User: ${newUserId}`);
+        resetCaptureState();
+        userId = newUserId;
+        raspberrySocket.emit('start_stream'); 
+    });
+
+    controlSocket.on('stop_session', () => {
+        console.log("Command [Control -> Display]: STOP SESSION.");
+        resetCaptureState();
+        raspberrySocket.emit('stop_stream');
+    });
+
+    controlSocket.on('start_capture', () => {
+        if (isCountingDown) {
+            console.warn("Capture loop already running, ignoring command.");
+            return;
+        }
+        console.log("Command [Control -> Display]: START CAPTURE LOOP.");
+        startCaptureLoop();
+    });
+
+    controlSocket.on('change_filter', (data) => {
+        console.log(`Command [Control -> Display]: CHANGE FILTER (${data.filterType})`);
+        raspberrySocket.emit('change_filter', { filterType: data.filterType });
+    });
+
+    // === RASPBERRY SERVER COMMUNICATION (Stream & Capture) ===
+
+    raspberrySocket.on('connect', () => {
+        console.log("Connected to Raspberry Server");
+        debugStatus.textContent = "Raspberry Core Ready.";
+    });
+
+    raspberrySocket.on('stream_status', (data) => {
+        console.log(`Raspberry -> Display: Stream status is now ${data.active}`);
+        if (data.active) {
+            waitingScreen.style.display = 'none';
+            videoFeed.style.display = 'block';
+        } else {
+            waitingScreen.style.display = 'block';
+            videoFeed.style.display = 'none';
+            if (currentObjectUrl) {
+                URL.revokeObjectURL(currentObjectUrl);
+                videoFeed.src = "";
+            }
+        }
+    });
+
+    // Receive the LIVE video stream (binary)
+    raspberrySocket.on('video_frame', (arrayBuffer) => {
+        waitingScreen.style.display = 'none';
+        videoFeed.style.display = 'block';
+        const blob = new Blob([arrayBuffer], { type: 'image/jpeg' });
+        const newUrl = URL.createObjectURL(blob);
+        if (currentObjectUrl) URL.revokeObjectURL(currentObjectUrl);
+        currentObjectUrl = newUrl;
+        videoFeed.src = newUrl;
+    });
+
+    // === CAPTURE LOGIC & UPLOAD ===
+
+    /** Helper function to pause execution */
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /** Resets all session state variables */
+    function resetCaptureState() {
+        userId = null;
+        isCountingDown = false;
+        capturedImages = [];
+        thumbnailContainer.innerHTML = "";
+        countdownOverlay.style.display = 'none';
+    }
+
+    /** Shows or hides the countdown text overlay */
+    function showCountdown(text) {
+        if (!text) {
+            countdownOverlay.style.display = 'none';
+        } else {
+            countdownOverlay.textContent = text;
+            countdownOverlay.style.display = 'block';
+        }
+    }
+
+    /** Manages the 10-second countdown on the UI */
+    async function runCountdown(seconds) {
+        isCountingDown = true;
+        for (let i = seconds; i > 0; i--) {
+            showCountdown(i);
+            await sleep(1000);
+        }
+        isCountingDown = false;
+    }
+
+    // --- Helper to convert binary to Base64 ---
+    /** Converts ArrayBuffer binary data to a Base64 string */
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+
+    /** * Sends a 'capture_frame' request to Raspberry and waits for
+     * the 'captured_frame' response (which is now binary).
+     */
+    function triggerAndReceiveFrame() {
+        return new Promise((resolve) => {
+            // Listen for the *single* binary response
+            raspberrySocket.once('captured_frame', (arrayBuffer) => {
+                console.log("Received 1 captured frame (binary) from Raspberry.");
+                
+                // 1. Convert binary to Base64 for storage and upload
+                const base64String = arrayBufferToBase64(arrayBuffer);
+                capturedImages.push(base64String);
+                
+                // 2. Update UI: Add thumbnail
+                const img = document.createElement('img');
+                img.src = `data:image/jpeg;base64,${base64String}`;
+                thumbnailContainer.appendChild(img);
+
+                resolve(); // Resolve the promise
+            });
+            
+            // Send the request
+            raspberrySocket.emit('capture_frame');
+            console.log("Sent 'capture_frame' request to Raspberry.");
+        });
+    }
+
+    /** The main business logic loop */
+    async function startCaptureLoop() {
+        for (let i = 1; i <= TOTAL_PHOTOS; i++) {
+            showCountdown(null);
+            await sleep(500);
+
+            await runCountdown(CAPTURE_COUNTDOWN_SEC);
+            
+            showCountdown("SMILE!");
+            await triggerAndReceiveFrame(); // Wait for the binary image
+            await sleep(1000); 
+        }
+        
+        showCountdown(null);
+        console.log(`Capture complete. Total ${capturedImages.length} images.`);
+        
+        await uploadPhotos();
+        raspberrySocket.emit('stop_stream');
+        resetCaptureState();
+    }
+
+    /** Sends the captured Base64 images and userId to the Control server. */
+    async function uploadPhotos() {
+        if (!userId || capturedImages.length === 0) return;
+
+        console.log(`Uploading ${capturedImages.length} photos for user ${userId}...`);
+        
+        try {
+            const response = await fetch(UPLOAD_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: userId,
+                    images: capturedImages // Array of 4 Base64 strings
+                })
+            });
+            
+            if (response.ok) {
+                console.log("Upload successful.");
+            } else {
+                console.error("Upload failed.", await response.text());
+            }
+        } catch (err) {
+            console.error("Upload fetch error:", err);
+        }
+    }
+
+    // === DEBUGGING LISTENERS ===
+    raspberrySocket.on('connect_error', (err) => {
+        console.error("Raspberry Server Connect Error:", err);
+        debugStatus.textContent = "Error: Cannot connect to Raspberry Server (5000).";
+    });
+    controlSocket.on('connect_error', (err) => {
+        console.error("Control Server Connect Error:", err);
+        debugStatus.textContent = "Error: Cannot connect to Control Server (3000).";
+    });
+</script>
+</body>
+</html>

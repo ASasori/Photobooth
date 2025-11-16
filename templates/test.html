@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photobooth WebSocket Test</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 600px;
+      width: 100%;
+      padding: 30px;
+    }
+
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+      font-size: 28px;
+    }
+
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+      font-size: 14px;
+    }
+
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      font-weight: 500;
+    }
+
+    .status.connected {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status.disconnected {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .status.connecting {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    .status.connected .status-dot {
+      background: #28a745;
+    }
+
+    .status.disconnected .status-dot {
+      background: #dc3545;
+    }
+
+    .status.connecting .status-dot {
+      background: #ffc107;
+    }
+
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    .config {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+
+    .config label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .config input {
+      width: 100%;
+      padding: 10px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+
+    .config input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      flex: 1;
+      padding: 12px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    button.connect {
+      background: #28a745;
+      color: white;
+    }
+
+    button.connect:hover {
+      background: #218838;
+    }
+
+    button.disconnect {
+      background: #dc3545;
+      color: white;
+    }
+
+    button.disconnect:hover {
+      background: #c82333;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .messages {
+      max-height: 400px;
+      overflow-y: auto;
+      border: 2px solid #e0e0e0;
+      border-radius: 10px;
+      padding: 15px;
+      background: #f8f9fa;
+    }
+
+    .message {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      border-left: 4px solid #667eea;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      animation: slideIn 0.3s ease-out;
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .message-type {
+      font-weight: 600;
+      color: #667eea;
+      font-size: 16px;
+    }
+
+    .message-time {
+      color: #999;
+      font-size: 12px;
+    }
+
+    .message-data {
+      background: #f8f9fa;
+      padding: 10px;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      color: #333;
+      word-break: break-all;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #999;
+      padding: 40px;
+      font-style: italic;
+    }
+
+    .clear-btn {
+      margin-top: 10px;
+      background: #6c757d;
+      color: white;
+      width: 100%;
+    }
+
+    .clear-btn:hover {
+      background: #5a6268;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📸 Photobooth WebSocket Test</h1>
+    <p class="subtitle">Kết nối và nhận thông báo khi session được tạo</p>
+
+    <div id="status" class="status disconnected">
+      <span class="status-dot"></span>
+      <span>Chưa kết nối</span>
+    </div>
+
+    <div class="config">
+      <label for="serverUrl">Server URL:</label>
+      <input 
+        type="text" 
+        id="serverUrl" 
+        value="http://localhost:3000" 
+        placeholder="http://localhost:3000"
+      >
+    </div>
+
+    <div class="button-group">
+      <button id="connectBtn" class="connect" onclick="connect()">Kết nối</button>
+      <button id="disconnectBtn" class="disconnect" onclick="disconnect()" disabled>Ngắt kết nối</button>
+    </div>
+
+    <div class="messages" id="messages">
+      <div class="empty-state">Chưa có message nào. Kết nối để bắt đầu nhận thông báo.</div>
+    </div>
+
+    <button class="clear-btn" onclick="clearMessages()">Xóa tất cả messages</button>
+  </div>
+
+  <script>
+    let socket = null;
+    const messagesContainer = document.getElementById('messages');
+    const statusDiv = document.getElementById('status');
+    const connectBtn = document.getElementById('connectBtn');
+    const disconnectBtn = document.getElementById('disconnectBtn');
+    const serverUrlInput = document.getElementById('serverUrl');
+
+    function updateStatus(status, text) {
+      statusDiv.className = `status ${status}`;
+      statusDiv.innerHTML = `<span class="status-dot"></span><span>${text}</span>`;
+    }
+
+    function addMessage(message) {
+      // Remove empty state if exists
+      const emptyState = messagesContainer.querySelector('.empty-state');
+      if (emptyState) {
+        emptyState.remove();
+      }
+
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message';
+      
+      const now = new Date();
+      const timeString = now.toLocaleTimeString('vi-VN');
+      
+      messageDiv.innerHTML = `
+        <div class="message-header">
+          <span class="message-type">${message.type || 'Message'}</span>
+          <span class="message-time">${timeString}</span>
+        </div>
+        <div class="message-data">${JSON.stringify(message, null, 2)}</div>
+      `;
+      
+      messagesContainer.insertBefore(messageDiv, messagesContainer.firstChild);
+    }
+
+    function connect() {
+      const serverUrl = serverUrlInput.value.trim() || 'http://localhost:3000';
+      
+      if (socket && socket.connected) {
+        alert('Đã kết nối rồi!');
+        return;
+      }
+
+      updateStatus('connecting', 'Đang kết nối...');
+      connectBtn.disabled = true;
+      disconnectBtn.disabled = false;
+
+      // Connect to Socket.IO namespace với HTTP long polling only
+      socket = io(`${serverUrl}/photobooth`, {
+        transports: ['polling'], // Chỉ sử dụng HTTP long polling
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionAttempts: 5,
+        forceNew: true, // Force new connection
+      });
+
+      socket.on('connect', () => {
+        updateStatus('connected', 'Đã kết nối');
+        addMessage({
+          type: 'system',
+          message: 'Kết nối thành công đến WebSocket server',
+          timestamp: new Date().toISOString()
+        });
+      });
+
+      socket.on('disconnect', (reason) => {
+        updateStatus('disconnected', 'Đã ngắt kết nối');
+        addMessage({
+          type: 'system',
+          message: `Đã ngắt kết nối: ${reason}`,
+          timestamp: new Date().toISOString()
+        });
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+      });
+
+      socket.on('connect_error', (error) => {
+        updateStatus('disconnected', 'Lỗi kết nối');
+        addMessage({
+          type: 'error',
+          message: `Lỗi kết nối: ${error.message}`,
+          timestamp: new Date().toISOString()
+        });
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+      });
+
+      // Listen for start_session event
+      socket.on('start_session', (message) => {
+        addMessage(message);
+      });
+
+      // Listen for stop_session event
+      socket.on('stop_session', (message) => {
+        addMessage(message);
+      });
+
+      // Listen for start_capture event
+      socket.on('start_capture', (message) => {
+        addMessage(message);
+      });
+
+      // Listen for change_filter event
+      socket.on('change_filter', (message) => {
+        addMessage(message);
+      });
+
+      // Listen for any other events
+      socket.onAny((eventName, ...args) => {
+        if (eventName !== 'start_session' && eventName !== 'stop_session' && eventName !== 'start_capture' && eventName !== 'change_filter' && eventName !== 'connect' && eventName !== 'disconnect') {
+          addMessage({
+            type: eventName,
+            data: args,
+            timestamp: new Date().toISOString()
+          });
+        }
+      });
+    }
+
+    function disconnect() {
+      if (socket) {
+        socket.disconnect();
+        socket = null;
+        updateStatus('disconnected', 'Đã ngắt kết nối');
+        connectBtn.disabled = false;
+        disconnectBtn.disabled = true;
+      }
+    }
+
+    function clearMessages() {
+      messagesContainer.innerHTML = '<div class="empty-state">Chưa có message nào. Kết nối để bắt đầu nhận thông báo.</div>';
+    }
+
+    // Auto-connect on page load (optional)
+    // window.addEventListener('load', () => {
+    //   connect();
+    // });
+  </script>
+</body>
+</html>

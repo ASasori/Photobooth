@@ -1,0 +1,74 @@
+{
+    "data": [
+        {
+            "id": "local_mickey_ears",
+            "imageUrl": "static/images/mickey.png",
+            "filterType": "cute",
+            "scale": 3.0,
+            "offset_y": -60,
+            "anchor_idx": 10,
+            "left_idx": 234,
+            "right_idx": 454
+        },
+        {
+            "id": "local_mickey_glasses",
+            "imageUrl": "static/images/mickey-glasses.png",
+            "filterType": "cute",
+            "scale": 2.0,
+            "offset_y": 8,
+            "anchor_idx": 168,
+            "left_idx": 33,
+            "right_idx": 263
+        },
+        {
+            "id": "local_mustache",
+            "imageUrl": "static/images/mustache.png",
+            "filterType": "cool",
+            "scale": 1.2,
+            "offset_y": 40,
+            "anchor_idx": 1,
+            "left_idx": 234,
+            "right_idx": 454
+        },
+        {
+            "id": "local_sunglasses",
+            "imageUrl": "static/images/pixel-sunglasses.png",
+            "filterType": "cool",
+            "scale": 2.0,
+            "offset_y": 20,
+            "anchor_idx": 168,
+            "left_idx": 33,
+            "right_idx": 263
+        },
+        {
+            "id": "local_cowboy_hat",
+            "imageUrl": "static/images/cowboyhat.png",
+            "filterType": "cool",
+            "scale": 2.3,
+            "offset_y": -70,
+            "anchor_idx": 10,
+            "left_idx": 234,
+            "right_idx": 454
+        },
+        {
+            "id": "local_rabbit_ears",
+            "imageUrl": "static/images/rabbit.png",
+            "filterType": "poetic",
+            "scale": 2.5,
+            "offset_y": -100,
+            "anchor_idx": 10,
+            "left_idx": 234,
+            "right_idx": 454
+        },
+        {
+            "id": "local_angry_effect",
+            "imageUrl": "static/images/angry.png",
+            "filterType": "poetic",
+            "scale": 1.0,
+            "offset_y": -50,
+            "anchor_idx": 33,
+            "left_idx": 234,
+            "right_idx": 454
+        }
+    ]
+}
