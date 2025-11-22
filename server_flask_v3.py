@@ -7,8 +7,11 @@ import atexit
 import json
 import requests
 import threading
+import time
+import RPi.GPIO as GPIO
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
+
 
 # --- CONFIGURATION ---
 HOST = "0.0.0.0"  # Host IP to run the server on (0.0.0.0 = listen on all available IPs)
@@ -16,6 +19,7 @@ PORT = 5000       # Port to run the server on
 API_FILTER_URL = "https://photobooth.kazekageiii.xyz/api/filters"  # API endpoint to fetch filters
 MOCK_JSON_PATH = "mock_filters.json"    # Fallback file if API is unreachable
 USE_LOCAL_MOCK_ON_FAIL = True           # Flag to control fallback behavior
+BUTTON_PIN = 17 
 
 # --- LOGGING COLORS ---
 RED = '\033[91m'
@@ -37,9 +41,9 @@ is_streaming = False          # Flag to control the AI processing and streaming 
 # --- APPLICATION SETUP ---
 app = Flask(__name__) # Initialize the Flask application
 app.config['SECRET_KEY'] = 'secret!' # Required for SocketIO
-# Initialize SocketIO with 'eventlet' for high-performance async operations
+# Initialize SocketIO with 'socketio' for high-performance async operations
 # and allow all origins ('*') to connect (e.g., the Display FE)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Initialize MediaPipe Face Mesh
 mp_face_mesh = mp.solutions.face_mesh
@@ -49,6 +53,79 @@ face_mesh = mp_face_mesh.FaceMesh(max_num_faces=4, min_detection_confidence=0.5)
 cap = cv2.VideoCapture(0)
 # You can set cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280) etc. if needed
 
+class ButtonHandler:
+    def __init__(self, pin):
+        self.pin = pin
+        self.running = True  # Flag to control the polling loop
+        self.DOUBLE_CLICK_DELAY = 0.5  # Time delay to wait for a second click (seconds)
+        
+        # Setup GPIO
+        GPIO.setmode(GPIO.BCM)
+        try:
+            GPIO.cleanup(self.pin)
+        except:
+            pass
+            
+        GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+        
+        print(f"[{GREEN}GPIO{ENDC}] Button initialized on GPIO {self.pin} using POLLING mode.")
+
+        # Start the button polling thread
+        self.thread = threading.Thread(target=self._polling_loop, daemon=True)
+        self.thread.start()
+
+    def _polling_loop(self):
+        """
+        Continuous background loop to check button state.
+        """
+        click_count = 0
+        last_click_time = 0
+        prev_state = GPIO.input(self.pin) # Initial state (usually 0)
+
+        while self.running:
+            current_state = GPIO.input(self.pin)
+
+            # 1. Detect Rising Edge: From 0 -> 1
+            if prev_state == 0 and current_state == 1:
+                click_count += 1
+                last_click_time = time.time()
+                # Simple debounce: Sleep briefly to avoid mechanical button noise
+                time.sleep(0.05) 
+
+            # 2. Logic to determine Single vs Double Click
+            if click_count > 0:
+                # Calculate time elapsed since the last click
+                elapsed = time.time() - last_click_time
+                
+                # If waited long enough without another click -> Finalize result
+                if elapsed > self.DOUBLE_CLICK_DELAY:
+                    if click_count == 1:
+                        self._trigger_single_click()
+                    elif click_count >= 2:
+                        self._trigger_double_click()
+                    
+                    # Reset counter after processing
+                    click_count = 0
+
+            # Update previous state
+            prev_state = GPIO.input(self.pin) # Note: Must re-read actual input after debounce sleep
+            
+            # Short sleep to reduce CPU load (important)
+            time.sleep(0.01) 
+
+    def _trigger_single_click(self):
+        print(f"[{BLUE}BUTTON{ENDC}] Single Click Detected -> Start Session")
+        socketio.emit('button-status', {'active': True})
+
+    def _trigger_double_click(self):
+        print(f"[{BLUE}BUTTON{ENDC}] Double Click Detected -> Stop Session")
+        socketio.emit('button-status', {'active': False})
+
+    def cleanup(self):
+        """Stop the loop when shutting down the server"""
+        self.running = False
+        # Wait for thread to finish if needed, or let daemon kill it
+        
 # --- RESOURCE LOADING ---
 def load_resources():
     """
@@ -363,11 +440,13 @@ def cleanup():
     global camera_running
     camera_running = False
     cap.release()
+    GPIO.cleanup()
 
 atexit.register(cleanup)
 
 # --- APPLICATION ENTRY POINT ---
 if __name__ == '__main__':
+    button_handler = ButtonHandler(pin=BUTTON_PIN)
     # 1. Start the camera reading thread in the background
     threading.Thread(target=read_camera_thread, daemon=True).start()
     

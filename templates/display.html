@@ -28,7 +28,7 @@
 </head>
 <body>
 
-    <div id="streamWrapper">
+    <div id="streamWrapper" style="display: none;">
         <div id="waitingScreen">
             <h1 class="text-8xl font-black mb-8 animate-pulse text-gray-800">PHOTOBOOTH</h1>
             <p class="text-3xl uppercase tracking-[1em]">Standby</p>
@@ -43,7 +43,7 @@
 <script>
     // === CONFIGURATION ===
     const CONTROL_SERVER_URL = "https://photobooth.kazekageiii.xyz";
-    const RASPBERRY_SERVER_URL = "http://localhost:5000";
+    const RASPBERRY_SERVER_URL = "http://192.168.137.243:5000";
     const UPLOAD_URL = "https://photobooth.kazekageiii.xyz/upload";
     const CAPTURE_COUNTDOWN_SEC = 10;
     const TOTAL_PHOTOS = 4;
@@ -59,6 +59,7 @@
     const raspberrySocket = io(RASPBERRY_SERVER_URL);
 
     // === DOM ELEMENTS ===
+    const streamWrapper = document.getElementById('streamWrapper');
     const videoFeed = document.getElementById('videoFeed');
     const waitingScreen = document.getElementById('waitingScreen');
     const debugStatus = document.getElementById('debugStatus');
@@ -112,6 +113,23 @@
     raspberrySocket.on('connect', () => {
         console.log("Connected to Raspberry Server");
         debugStatus.textContent = "Raspberry Core Ready.";
+    });
+
+    raspberrySocket.on('button-status', (data) => {
+        console.log(`Button Status: ${data.active}`);
+        if (data.active) {
+            streamWrapper.style.display = 'block';
+            waitingScreen.style.display = 'block';
+            videoFeed.style.display = 'none';
+        } else {
+            streamWrapper.style.display = 'none';
+            waitingScreen.style.display = 'none';
+            videoFeed.style.display = 'none';
+            if (currentObjectUrl) {
+                URL.revokeObjectURL(currentObjectUrl);
+                videoFeed.src = "";
+            }
+        }
     });
 
     raspberrySocket.on('stream_status', (data) => {
