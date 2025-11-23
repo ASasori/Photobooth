@@ -118,7 +118,7 @@
     raspberrySocket.on('button-status', (data) => {
         console.log(`Button Status: ${data.active}`);
         if (data.active) {
-            streamWrapper.style.display = 'block';
+            streamWrapper.style.display = 'flex';
             waitingScreen.style.display = 'block';
             videoFeed.style.display = 'none';
         } else {

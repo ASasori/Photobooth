@@ -9,6 +9,7 @@ import requests
 import threading
 import time
 import RPi.GPIO as GPIO
+from gpiozero import DistanceSensor
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
 
@@ -20,6 +21,10 @@ API_FILTER_URL = "https://photobooth.kazekageiii.xyz/api/filters"  # API endpoin
 MOCK_JSON_PATH = "mock_filters.json"    # Fallback file if API is unreachable
 USE_LOCAL_MOCK_ON_FAIL = True           # Flag to control fallback behavior
 BUTTON_PIN = 17 
+TRIG_PIN = 23
+ECHO_PIN = 24
+IDLE_TIMEOUT = 30 
+DETECTION_RANGE_M = 1
 
 # --- LOGGING COLORS ---
 RED = '\033[91m'
@@ -54,78 +59,140 @@ cap = cv2.VideoCapture(0)
 # You can set cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280) etc. if needed
 
 class ButtonHandler:
-    def __init__(self, pin):
+    # Add sensor_ref parameter to init (default is None to avoid errors if not provided)
+    def __init__(self, pin, sensor_ref=None):
         self.pin = pin
-        self.running = True  # Flag to control the polling loop
-        self.DOUBLE_CLICK_DELAY = 0.5  # Time delay to wait for a second click (seconds)
+        self.sensor_ref = sensor_ref  # Store reference to the sensor object
+        self.running = True  
+        self.DOUBLE_CLICK_DELAY = 0.5 
         
-        # Setup GPIO
+        # Setup GPIO (RPi.GPIO)
         GPIO.setmode(GPIO.BCM)
-        try:
-            GPIO.cleanup(self.pin)
-        except:
-            pass
-            
         GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
         
-        print(f"[{GREEN}GPIO{ENDC}] Button initialized on GPIO {self.pin} using POLLING mode.")
+        print(f"[{GREEN}GPIO{ENDC}] Button initialized on GPIO {self.pin}. Linked to Sensor: {sensor_ref is not None}")
 
-        # Start the button polling thread
         self.thread = threading.Thread(target=self._polling_loop, daemon=True)
         self.thread.start()
 
+    # ... (Keep the _polling_loop function as is) ...
     def _polling_loop(self):
-        """
-        Continuous background loop to check button state.
-        """
+        """This function retains your original logic"""
         click_count = 0
         last_click_time = 0
-        prev_state = GPIO.input(self.pin) # Initial state (usually 0)
+        prev_state = GPIO.input(self.pin)
 
         while self.running:
             current_state = GPIO.input(self.pin)
-
-            # 1. Detect Rising Edge: From 0 -> 1
             if prev_state == 0 and current_state == 1:
                 click_count += 1
                 last_click_time = time.time()
-                # Simple debounce: Sleep briefly to avoid mechanical button noise
                 time.sleep(0.05) 
 
-            # 2. Logic to determine Single vs Double Click
             if click_count > 0:
-                # Calculate time elapsed since the last click
                 elapsed = time.time() - last_click_time
-                
-                # If waited long enough without another click -> Finalize result
                 if elapsed > self.DOUBLE_CLICK_DELAY:
                     if click_count == 1:
                         self._trigger_single_click()
                     elif click_count >= 2:
                         self._trigger_double_click()
-                    
-                    # Reset counter after processing
                     click_count = 0
 
-            # Update previous state
-            prev_state = GPIO.input(self.pin) # Note: Must re-read actual input after debounce sleep
-            
-            # Short sleep to reduce CPU load (important)
+            prev_state = GPIO.input(self.pin) 
             time.sleep(0.01) 
 
     def _trigger_single_click(self):
-        print(f"[{BLUE}BUTTON{ENDC}] Single Click Detected -> Start Session")
+        print(f"[{BLUE}BUTTON{ENDC}] Single Click -> Start Session")
         socketio.emit('button-status', {'active': True})
+        
+        # When the ON button is pressed, notify the Sensor to reset the countdown timer
+        if self.sensor_ref:
+            self.sensor_ref.set_system_state(True)
+            print(f"[{GREEN}LINK{ENDC}] Sensor timer reset.")
 
     def _trigger_double_click(self):
-        print(f"[{BLUE}BUTTON{ENDC}] Double Click Detected -> Stop Session")
+        print(f"[{BLUE}BUTTON{ENDC}] Double Click -> Stop Session")
         socketio.emit('button-status', {'active': False})
+        
+        # When the OFF button is pressed, notify the Sensor that the system is off (stop checking timeout)
+        if self.sensor_ref:
+            self.sensor_ref.set_system_state(False)
+            print(f"[{GREEN}LINK{ENDC}] Sensor monitoring paused (System OFF).")
 
     def cleanup(self):
-        """Stop the loop when shutting down the server"""
         self.running = False
-        # Wait for thread to finish if needed, or let daemon kill it
-        
+
+# Ultrasonic Sensor Class
+class UltrasonicMonitor:
+    def __init__(self, trig_pin, echo_pin):
+        self.running = True
+        self.last_activity_time = time.time()
+        self.system_is_active = False
+
+        # Initialize sensor using gpiozero
+        # max_distance: Maximum distance to measure (to filter noise)
+        # threshold_distance: Activation threshold (used for events if needed)
+        try:
+            self.sensor = DistanceSensor(echo=echo_pin, trigger=trig_pin, 
+                                         max_distance=3.0, threshold_distance=DETECTION_RANGE_M)
+            print(f"[{GREEN}SENSOR{ENDC}] Ultrasonic Sensor (gpiozero) initialized.")
+        except Exception as e:
+            print(f"[{RED}ERROR{ENDC}] Failed to init sensor: {e}")
+            self.running = False
+            return
+
+        # Start the 2-minute logic monitoring thread
+        self.thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.thread.start()
+
+    def _monitor_loop(self):
+        """Loop to check timeout logic"""
+        while self.running:
+            
+            if not self.system_is_active:
+                time.sleep(0.05)
+                continue
+            # gpiozero returns distance in METERS (float)
+            # If nothing is detected or it's too far, it usually returns max_distance
+            
+            try: 
+                current_distance = self.sensor.distance 
+                print(f"Distance: {current_distance:.2f} m", flush=True)
+
+                if current_distance < DETECTION_RANGE_M:
+                    # Person detected within 2m range
+                    self.last_activity_time = time.time()
+                    
+                    # (Optional) Auto wake up if currently off
+                    # if not self.system_is_active:
+                    #     socketio.emit('button-status', {'active': True})
+                    #     self.system_is_active = True
+
+                else:
+                    # No person detected -> Check timeout
+                    elapsed_idle = time.time() - self.last_activity_time
+                    
+                    if elapsed_idle > IDLE_TIMEOUT and self.system_is_active:
+                        print(f"[{RED}AUTO-OFF{ENDC}] No user for {IDLE_TIMEOUT}s -> Shutdown System")
+                        socketio.emit('button-status', {'active': False})
+                        self.system_is_active = False
+
+                # Sleep 1 second
+                time.sleep(1)
+            except Exception as e:
+                print(f"Sensor Error: {e}")
+                time.sleep(1)
+
+    def set_system_state(self, is_active):
+        """Update state from Button (to synchronize logic)"""
+        self.system_is_active = is_active
+        if is_active:
+            self.last_activity_time = time.time() # Reset timer when manually turned on via button
+
+    def cleanup(self):
+        self.running = False
+        self.sensor.close() # Release gpiozero resources
+
 # --- RESOURCE LOADING ---
 def load_resources():
     """
@@ -446,7 +513,9 @@ atexit.register(cleanup)
 
 # --- APPLICATION ENTRY POINT ---
 if __name__ == '__main__':
-    button_handler = ButtonHandler(pin=BUTTON_PIN)
+    
+    sensor_monitor = UltrasonicMonitor(trig_pin=TRIG_PIN, echo_pin=ECHO_PIN)
+    button_handler = ButtonHandler(pin=BUTTON_PIN, sensor_ref=sensor_monitor)
     # 1. Start the camera reading thread in the background
     threading.Thread(target=read_camera_thread, daemon=True).start()
     
