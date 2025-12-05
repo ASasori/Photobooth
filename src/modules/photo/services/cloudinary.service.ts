@@ -2,6 +2,12 @@ import { Injectable, Logger } from '@nestjs/common';
 import { v2 as cloudinary } from 'cloudinary';
 import { ConfigService } from '@nestjs/config';
 
+interface CloudinaryError {
+  message: string;
+  http_code?: number;
+  name?: string;
+}
+
 @Injectable()
 export class CloudinaryService {
   private readonly logger = new Logger(CloudinaryService.name);
@@ -48,7 +54,12 @@ export class CloudinaryService {
         },
         (error, result) => {
           if (error) {
-            reject(new Error(error.message));
+            // Preserve Cloudinary error details
+            const cloudinaryError = error as CloudinaryError;
+            const errorMessage = cloudinaryError.http_code
+              ? `Cloudinary Error [${cloudinaryError.http_code}]: ${cloudinaryError.message || error.message}`
+              : `Cloudinary Error: ${error.message}`;
+            reject(new Error(errorMessage));
           } else if (!result) {
             reject(new Error('Upload completed but no result returned'));
           } else {
@@ -58,7 +69,8 @@ export class CloudinaryService {
       );
 
       uploadStream.on('error', (err) => {
-        reject(new Error(`Upload stream error: ${err.message}`));
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        reject(new Error(`Cloudinary Upload Stream Error: ${errorMessage}`));
       });
 
       uploadStream.end(file.buffer);
@@ -72,6 +84,7 @@ export class CloudinaryService {
         `Upload timeout after ${this.UPLOAD_TIMEOUT}ms`,
       );
     } catch (error) {
+      // Preserve original error message from Cloudinary
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(
@@ -88,10 +101,8 @@ export class CloudinaryService {
         return this.uploadImage(file, folder, retryCount + 1);
       }
 
-      // All retries failed
-      throw new Error(
-        `Upload failed after ${this.MAX_RETRIES} attempts: ${errorMessage}`,
-      );
+      // All retries failed - throw original error to preserve Cloudinary error details
+      throw error;
     }
   }
 
@@ -99,7 +110,15 @@ export class CloudinaryService {
     try {
       await cloudinary.uploader.destroy(publicId);
     } catch (error) {
-      throw new Error((error as Error).message);
+      // Preserve Cloudinary error details
+      const cloudinaryError = error as CloudinaryError;
+      const baseMessage =
+        cloudinaryError.message ||
+        (error instanceof Error ? error.message : String(error));
+      const errorMessage = cloudinaryError.http_code
+        ? `Cloudinary Error [${cloudinaryError.http_code}]: ${baseMessage}`
+        : baseMessage;
+      throw new Error(errorMessage);
     }
   }
 

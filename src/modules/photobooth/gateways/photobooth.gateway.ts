@@ -32,11 +32,11 @@ export class PhotoboothGateway
     this.logger.log(`Client disconnected: ${client.id}`);
   }
 
-  emitStartSession(userId: string) {
-    this.logger.log(`Emitting start_session for user: ${userId}`);
+  emitStartSession(userId: string, sessionId: string) {
+    this.logger.log(`Emitting start_session for user: ${userId}, session: ${sessionId}`);
     this.server.emit('start_session', {
       type: 'start_session',
-      data: { user_id: userId },
+      data: { user_id: userId, session_id: sessionId },
     });
   }
 
